@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0f172a">
+<title>AG Pro — Parabolic Move Detector</title>
+<style>
+:root{--bg:#0b1020;--panel:#0f172a;--alt:#14213a;--border:#334155;--muted:#94a3b8;--text:#e2e8f0;--blue:#2563eb;--bull:#22c5a6;--bear:#f472b6;--neutral:#f5bd5c;--accent:#818cf8;--danger:#ef4444}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{padding:calc(10px + env(safe-area-inset-top,0px)) 10px calc(18px + env(safe-area-inset-bottom,0px))}
+main{max-width:760px;margin:0 auto}
+h1{font-size:21px;line-height:1.2;margin:3px 0 5px}
+.sub{font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:14px}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:13px;padding:12px;margin:10px 0}
+h2{font-size:15px;margin:0 0 10px}
+label{display:block;color:var(--muted);font-size:12px;margin:0 0 5px}
+input,select,button{font:inherit;color:var(--text);background:#172033;border:1px solid #475569;border-radius:8px;min-height:40px;padding:8px;width:100%;min-width:0}
+button{background:var(--blue);border-color:var(--blue);font-weight:650;cursor:pointer}
+button:disabled{opacity:.55}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.actions{display:flex;gap:8px;margin-top:10px}
+.actions>*{flex:1}
+.metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.metric{background:var(--alt);border:1px solid #263750;border-radius:9px;padding:10px;min-width:0}
+.k{font-size:11px;color:var(--muted)}
+.v{font-size:18px;font-weight:750;margin-top:5px;overflow-wrap:anywhere}
+.small{font-size:11px;color:var(--muted);line-height:1.5}
+.pill{display:inline-block;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:750;background:#263750;color:var(--text)}
+.scorebar{height:9px;border-radius:99px;background:#263750;overflow:hidden;margin-top:8px}
+.scorefill{height:100%;width:0;background:var(--accent);transition:width .2s}
+.status{font-size:12px;line-height:1.5;color:var(--muted);overflow-wrap:anywhere}
+.status.error{color:#ffc078}
+canvas{display:block;width:100%;height:250px;background:#0b1325;border-radius:9px}
+table{border-collapse:collapse;width:100%;font-size:12px}
+td{padding:8px 5px;border-bottom:1px solid #263750;vertical-align:top}
+td:first-child{color:var(--muted);width:42%}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+.legend span{font-size:11px;color:var(--muted)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+.note{font-size:11px;color:var(--muted);line-height:1.55}
+@media(max-width:430px){.grid{grid-template-columns:1fr 1fr}.v{font-size:16px}canvas{height:220px}}
+</style>
+</head>
+<body>
+<main>
+  <h1>AG Pro — Parabolic Move Detector</h1>
+  <div class="sub">Ricostruzione HTML dell'indicatore Pine v6 fornito. Misura ritmo, estensione rispetto alla EMA di base, punteggio parabolico e stato del movimento. Non è un segnale automatico di acquisto o vendita.</div>
+
+  <section class="panel">
+    <h2>Impostazioni</h2>
+    <div class="grid">
+      <div><label for="symbol">Simbolo Yahoo</label><input id="symbol" value="QQQ" spellcheck="false" autocomplete="off"></div>
+      <div><label for="interval">Timeframe</label><select id="interval"><option value="1m">1 minuto</option><option value="5m" selected>5 minuti</option><option value="15m">15 minuti</option><option value="30m">30 minuti</option><option value="60m">1 ora</option><option value="1d">1 giorno</option></select></div>
+      <div><label for="range">Periodo Yahoo</label><select id="range"><option value="1d">1 giorno</option><option value="5d">5 giorni</option><option value="1mo" selected>1 mese</option><option value="3mo">3 mesi</option><option value="6mo">6 mesi</option><option value="1y">1 anno</option></select></div>
+      <div><label for="refresh">Aggiornamento</label><select id="refresh"><option value="10">Ogni 10 secondi</option><option value="30">Ogni 30 secondi</option><option value="60">Ogni 60 secondi</option><option value="0">Manuale</option></select></div>
+    </div>
+    <div class="actions"><button id="load">Carica dati</button><button id="stop" type="button">Ferma aggiornamento</button></div>
+  </section>
+
+  <section class="panel">
+    <div class="metrics">
+      <div class="metric"><div class="k">Parabolic Score</div><div class="v" id="score">— / 100</div><div class="scorebar"><div id="scorefill" class="scorefill"></div></div></div>
+      <div class="metric"><div class="k">Stato</div><div class="v" id="state">—</div><div class="small" id="direction">Direzione: —</div></div>
+      <div class="metric"><div class="k">Stretch rispetto EMA base</div><div class="v" id="stretch">—</div><div class="small" id="stretchPrice">Prezzo / EMA: —</div></div>
+      <div class="metric"><div class="k">Pace</div><div class="v" id="pace">—</div><div class="small">ATR per barra, normalizzato</div></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Prezzo, EMA e stato</h2>
+    <canvas id="chart" width="720" height="300" aria-label="Grafico del prezzo e delle medie mobili"></canvas>
+    <div class="legend">
+      <span><i class="dot" style="background:#e2e8f0"></i>Prezzo di chiusura</span>
+      <span><i class="dot" style="background:#818cf8"></i>EMA veloce</span>
+      <span><i class="dot" style="background:#3b82f6"></i>EMA base</span>
+    </div>
+    <div class="small" id="chartCaption">Il grafico mostra le ultime barre caricate. Il punteggio viene calcolato sull'ultima barra disponibile.</div>
+  </section>
+
+  <section class="panel">
+    <h2>Decision panel</h2>
+    <table>
+      <tbody>
+        <tr><td>Indicazione</td><td id="action">—</td></tr>
+        <tr><td>Mean Target (EMA base)</td><td id="target">—</td></tr>
+        <tr><td>Distanza dal target</td><td id="fadeRoom">—</td></tr>
+        <tr><td>Invalidation reference</td><td id="invalidation">—</td></tr>
+        <tr><td>Massimo/minimo estremo del movimento</td><td id="extreme">—</td></tr>
+        <tr><td>Durata contesto</td><td id="duration">—</td></tr>
+        <tr><td>Stall Rate</td><td id="stall">—</td></tr>
+        <tr><td>Ultimo aggiornamento</td><td id="updated">—</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Storico stati recenti</h2>
+    <div id="events" class="status">In attesa dei dati.</div>
+  </section>
+
+  <section class="panel note">
+    <strong>Fedeltà e limiti:</strong> il codice replica in JavaScript le formule centrali del Pine fornito (ATR, EMA, pace, score e stati). La ricostruzione grafica e alcuni dettagli operativi non sono una conversione certificata al 100% di Pine Script. Yahoo può restituire dati ritardati o limitare intervalli storici. Il valore Stall Rate è calcolato solo sugli eventi osservati durante la sessione di questa pagina, non su tutto lo storico del grafico.
+  </section>
+  <div id="status" class="status">Pronto. Premi “Carica dati”.</div>
+</main>
+<script>
+'use strict';
+const PROXY='https://yahooproxy.b864v27974.workers.dev';
+const $=id=>document.getElementById(id);
+const C={text:'#e2e8f0',muted:'#94a3b8',grid:'#263750',fast:'#818cf8',base:'#3b82f6',bull:'#22c5a6',bear:'#f472b6',neutral:'#f5bd5c',danger:'#ef4444',accent:'#818cf8'};
+let controller=null,timer=null,lastBars=[],lastEvents=[],stallHits=0,stallTotal=0,pendingStall=null,lastState='IDLE';
+
+const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+const fmt=(v,d=2)=>Number.isFinite(v)?v.toLocaleString('it-IT',{minimumFractionDigits:d,maximumFractionDigits:d}):'—';
+const fmtPrice=v=>Number.isFinite(v)?v.toLocaleString('it-IT',{maximumFractionDigits:6}):'—';
+const fmtTime=ms=>new Date(ms).toLocaleString('it-IT',{timeZone:'Europe/Rome',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+function parseYahoo(data){
+  const r=data?.chart?.result?.[0]||data?.result?.[0]||data;
+  const q=r?.indicators?.quote?.[0],ts=r?.timestamp;
+  if(!q||!ts)throw new Error(data?.chart?.error?.description||'Formato Yahoo non riconosciuto');
+  const out=[];
+  for(let i=0;i<ts.length;i++){
+    if(![ts[i],q.open?.[i],q.high?.[i],q.low?.[i],q.close?.[i]].every(Number.isFinite))continue;
+    out.push({time:ts[i]*1000,open:q.open[i],high:q.high[i],low:q.low[i],close:q.close[i]});
+  }
+  out.sort((a,b)=>a.time-b.time);
+  return out.filter((b,i)=>!i||b.time!==out[i-1].time);
+}
+async function fetchBars(signal){
+  const symbol=$('symbol').value.trim().toUpperCase();
+  if(!symbol)throw new Error('Inserisci un simbolo, per esempio QQQ o NQ=F.');
+  const interval=$('interval').value,range=$('range').value;
+  const path='/v8/finance/chart/'+encodeURIComponent(symbol)+'?interval='+encodeURIComponent(interval)+'&range='+encodeURIComponent(range);
+  const urls=[PROXY+path,PROXY+'/?url='+encodeURIComponent('https://query1.finance.yahoo.com'+path),PROXY+'/?symbol='+encodeURIComponent(symbol)+'&interval='+encodeURIComponent(interval)+'&range='+encodeURIComponent(range)];
+  let err;
+  for(const url of urls){
+    const ac=new AbortController(),abort=()=>ac.abort(),to=setTimeout(()=>ac.abort(),12000);
+    signal.addEventListener('abort',abort,{once:true});
+    try{
+      const res=await fetch(url,{cache:'no-store',signal:ac.signal});
+      if(!res.ok)throw new Error('HTTP '+res.status);
+      const bars=parseYahoo(await res.json());
+      if(bars.length<5)throw new Error('Yahoo ha restituito meno di 5 barre valide.');
+      return bars;
+    }catch(e){if(signal.aborted)throw e;err=e.name==='AbortError'?new Error('Timeout Yahoo'):e}
+    finally{clearTimeout(to);signal.removeEventListener('abort',abort)}
+  }
+  throw err||new Error('Impossibile caricare i dati');
+}
+function ema(values,len){
+  const out=Array(values.length).fill(null);if(!values.length)return out;
+  const alpha=2/(len+1);let prev=null;
+  for(let i=0;i<values.length;i++){prev=prev===null?values[i]:alpha*values[i]+(1-alpha)*prev;out[i]=prev}
+  return out;
+}
+function calcTR(bars){
+  return bars.map((b,i)=>i===0?b.high-b.low:Math.max(b.high-b.low,Math.abs(b.high-bars[i-1].close),Math.abs(b.low-bars[i-1].close)));
+}
+function atr(bars,len){
+  const tr=calcTR(bars),out=Array(bars.length).fill(null);
+  // Wilder smoothing (RMA), used by Pine ta.atr()
+  let prev=null;
+  for(let i=0;i<tr.length;i++){
+    if(i<len-1)continue;
+    if(i===len-1){let sum=0;for(let j=0;j<len;j++)sum+=tr[j];prev=sum/len}
+    else prev=(prev*(len-1)+tr[i])/len;
+    out[i]=prev;
+  }
+  return out;
+}
+function sma(arr,len){
+  return arr.map((_,i)=>{if(i<len-1)return null;let sum=0;for(let j=i-len+1;j<=i;j++)sum+=arr[j];return sum/len});
+}
+function runEngine(bars){
+  const p={lookback:10,paceThresh:.40,atrLen:14,fastLen:21,baseLen:55,minBars:3,cooldownBars:5,stretchRideAtr:2,stretchHotAtr:4,paceRefHigh:1.2,stretchRefHigh:6,invalBufferAtr:1,proofWindowBars:10};
+  const closes=bars.map(b=>b.close),atrRaw=atr(bars,p.atrLen),fast=ema(closes,p.fastLen),base=ema(closes,p.baseLen);
+  const pace=bars.map((b,i)=>{
+    const a=atrRaw[i]??(calcTR(bars)[i]||0);
+    return i>=p.lookback&&a>0?(closes[i]-closes[i-p.lookback])/(Math.max(a,1e-12)*p.lookback):0;
+  });
+  const paceSm=sma(pace,3);
+  const paceDelta=paceSm.map((v,i)=>v!==null&&i>=3&&paceSm[i-3]!==null?v-paceSm[i-3]:0);
+  let sustained=0,barsSince=1e6,phase=0,moveDir=0,startBar=null,moveExtreme=null,peakStretch=0,accelStreak=0;
+  const states=[],events=[];let hits=0,total=0,pending=null;
+  for(let i=0;i<bars.length;i++){
+    const a=Math.max(atrRaw[i]??(calcTR(bars)[i]||0),1e-12), ps=paceSm[i]??0, pd=paceDelta[i]??0;
+    const netMove=i>=p.lookback?closes[i]-closes[i-p.lookback]:0;
+    const dirRaw=ps>=0?1:-1, paceAbs=Math.abs(ps), stretch=(closes[i]-(base[i]??closes[i]))/a;
+    sustained=paceAbs>p.paceThresh?sustained+1:0;
+    const active=sustained>=p.minBars&&barsSince>=p.cooldownBars;
+    barsSince++;
+    const useDir=phase>0?moveDir:dirRaw,dirStretch=useDir*stretch;
+    const accelNow=useDir>0?pd>0:pd<0;accelStreak=accelNow?accelStreak+1:0;
+    const paceScore=clamp(paceAbs/p.paceRefHigh*100,0,100);
+    const stretchScore=clamp(dirStretch/p.stretchRefHigh*100,0,100);
+    const persistScore=Math.min(100,accelStreak*12);
+    const score=Math.round(clamp(paceScore*.4+stretchScore*.45+persistScore*.15,0,100));
+    let changed=false,newPhase=phase;
+    if(phase>0) {
+      moveExtreme=moveDir>0?Math.max(moveExtreme??bars[i].high,bars[i].high):Math.min(moveExtreme??bars[i].low,bars[i].low);
+      peakStretch=Math.max(peakStretch,dirStretch);
+    }
+    const rolling=moveDir>0?pd<0:pd>0,paceDead=paceAbs<p.paceThresh*.5;
+    if(phase===0){
+      if(active){newPhase=1;startBar=Math.max(0,i-p.minBars+1);moveDir=dirRaw;moveExtreme=dirRaw>0?bars[i].high:bars[i].low;peakStretch=dirRaw*stretch;changed=true}
+    }else if(phase===1){
+      if(dirStretch>=p.stretchRideAtr){newPhase=2;changed=true}
+      else if(paceDead&&dirStretch<.8){newPhase=0;changed=true}
+    }else if(phase===2){
+      if(dirStretch>=p.stretchHotAtr){newPhase=3;changed=true}
+      else if((rolling&&dirStretch>=p.stretchRideAtr*.8&&i-(startBar??i)>=p.minBars)||paceDead){newPhase=4;changed=true}
+    }else if(phase===3){
+      if(rolling||paceDead){newPhase=4;changed=true}
+    }else if(phase===4){
+      if(dirStretch<1||(startBar!==null&&i-startBar>80)){newPhase=0;changed=true}
+    }
+    const prev=phase;phase=newPhase;
+    if(prev>0&&phase===0){barsSince=0;moveDir=0;startBar=null;moveExtreme=null;peakStretch=0}
+    const state=phase===1?'BUILDING':phase===2?'PARABOLIC':phase===3?'STRETCHED':phase===4?'FADE SETUP':'IDLE';
+    const target=base[i]??closes[i],fadeRoom=Math.abs(closes[i]-target)/a;
+    const inval=phase>0?(moveDir>0?moveExtreme+p.invalBufferAtr*a:moveExtreme-p.invalBufferAtr*a):null;
+    const action=phase===1?'Osserva l’accelerazione':phase===2:'Contesto parabolico: gestisci il rischio':phase===3?'Rischio inseguimento elevato':phase===4?'Possibile ritorno verso la media; inversione non garantita':'Nessun contesto parabolico';
+    if(changed)events.push({time:bars[i].time,state,dir:moveDir,score,price:closes[i]});
+    if(pending&&i>pending.start){
+      const extended=pending.dir>0?bars[i].high>pending.extreme+pending.buffer:bars[i].low<pending.extreme-pending.buffer;
+      if(extended){total++;pending=null}
+      else if(i-pending.start>=p.proofWindowBars){total++;hits++;pending=null}
+    }
+    if(changed&&phase===4&&!pending)pending={start:i,dir:moveDir,extreme:moveExtreme,buffer:p.invalBufferAtr*a};
+    states.push({time:bars[i].time,close:closes[i],high:bars[i].high,low:bars[i].low,fast:fast[i],base:base[i],atr:a,pace:ps,paceAbs,paceDelta:pd,stretch,dirStretch,score,state,dir:moveDir,target,fadeRoom,inval,extreme:moveExtreme,duration:phase>0&&startBar!==null?i-startBar+1:0,action,changed});
+  }
+  return {states,events,hits,total};
+}
+function stateColor(s){return s==='PARABOLIC'?(current?.dir>0?C.bull:C.bear):s==='STRETCHED'?C.neutral:s==='FADE SETUP'?C.danger:s==='BUILDING'?C.accent:C.muted}
+let current=null;
+function renderChart(bars,states){
+  const canvas=$('chart'),ctx=canvas.getContext('2d');
+  const rect=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;
+  canvas.width=Math.max(320,Math.floor(rect.width*dpr));canvas.height=Math.floor((rect.height||250)*dpr);
+  ctx.scale(dpr,dpr);
+  const W=canvas.width/dpr,H=canvas.height/dpr,pad={l:42,r:10,t:14,b:22},w=W-pad.l-pad.r,h=H-pad.t-pad.b;
+  ctx.fillStyle='#0b1325';ctx.fillRect(0,0,W,H);
+  const n=Math.min(100,bars.length),start=bars.length-n,bs=bars.slice(start),ss=states.slice(start);
+  const vals=[];for(const b of bs)vals.push(b.low,b.high);for(const s of ss)if(Number.isFinite(s.base))vals.push(s.base);
+  let min=Math.min(...vals),max=Math.max(...vals);if(!Number.isFinite(min)||!Number.isFinite(max)||min===max){min=0;max=1}
+  const extra=(max-min)*.08;min-=extra;max+=extra;
+  const x=i=>pad.l+(n<=1?0:i/(n-1))*w,y=v=>pad.t+(max-v)/(max-min)*h;
+  ctx.font='10px -apple-system, sans-serif';ctx.strokeStyle=C.grid;ctx.fillStyle=C.muted;ctx.lineWidth=1;
+  for(let j=0;j<=4;j++){const yy=pad.t+j*h/4;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(W-pad.r,yy);ctx.stroke();ctx.fillText(fmt(max-(max-min)*j/4,2),3,yy+3)}
+  const line=(key,color,width)=>{ctx.beginPath();ctx.strokeStyle=color;ctx.lineWidth=width;let begun=false;ss.forEach((s,i)=>{const v=key==='close'?s.close:s[key];if(!Number.isFinite(v))return;if(!begun){ctx.moveTo(x(i),y(v));begun=true}else ctx.lineTo(x(i),y(v))});ctx.stroke()};
+  line('close',C.text,1.4);line('fast',C.fast,1);line('base',C.base,1.4);
+  ctx.fillStyle=C.muted;ctx.fillText('Più vecchio',pad.l,H-6);ctx.textAlign='right';ctx.fillText('Ultima barra',W-pad.r,H-6);ctx.textAlign='left';
+  const st=ss[ss.length-1];if(st){ctx.fillStyle=stateColor(st.state);ctx.fillRect(pad.l,5,Math.max(3,w*st.score/100),3)}
+}
+function render(result,bars){
+  const s=result.states[result.states.length-1];current=s;
+  $('score').textContent=s.score+' / 100';$('scorefill').style.width=s.score+'%';$('scorefill').style.background=s.score>=70?C.danger:s.score>=45?C.neutral:s.state!=='IDLE'?C.accent:C.muted;
+  $('state').textContent=s.state;$('state').style.color=stateColor(s.state);$('direction').textContent='Direzione: '+(s.dir>0?'UP':s.dir<0?'DOWN':'—');
+  $('stretch').textContent=(s.dirStretch>=0?'+':'')+fmt(s.dirStretch,2)+' ATR';$('stretch').style.color=s.dirStretch>=0?C.bull:C.bear;
+  $('stretchPrice').textContent='Prezzo '+fmtPrice(s.close)+' · EMA base '+fmtPrice(s.base);
+  $('pace').textContent=(s.pace>=0?'+':'')+fmt(s.pace,3)+' ATR/bar';
+  $('action').textContent=s.action;$('target').textContent=fmtPrice(s.target);$('fadeRoom').textContent=fmt(s.fadeRoom,2)+' ATR';
+  $('invalidation').textContent=s.inval===null?'—':fmtPrice(s.inval);
+  $('extreme').textContent=s.extreme===null?'—':fmtPrice(s.extreme);
+  $('duration').textContent=s.duration?s.duration+' barre':'—';
+  $('stall').textContent=result.total?Math.round(result.hits/result.total*100)+'% ('+result.hits+'/'+result.total+')':'In raccolta';
+  $('updated').textContent=fmtTime(s.time);
+  renderChart(bars,result.states);
+  const ev=result.events.slice(-8).reverse();
+  $('events').innerHTML=ev.length?'<table><tbody>'+ev.map(e=>`<tr><td>${fmtTime(e.time)}</td><td><strong style="color:${e.state==='FADE SETUP'?C.danger:e.state==='STRETCHED'?C.neutral:e.state==='PARABOLIC'?(e.dir>0?C.bull:C.bear):C.accent}">${e.state}</strong><br><span class="small">${e.dir>0?'UP':e.dir<0?'DOWN':'—'} · score ${e.score} · ${fmtPrice(e.price)}</span></td></tr>`).join('')+'</tbody></table>':'Nessun cambio di stato nel periodo caricato.';
+  $('status').className='status';$('status').textContent=$('symbol').value.trim().toUpperCase()+' · '+bars.length+' barre caricate · aggiornato '+new Date().toLocaleTimeString('it-IT',{timeZone:'Europe/Rome'})+' (ora italiana).';
+}
+async function load(){
+  if(controller)controller.abort();controller=new AbortController();const signal=controller.signal;
+  $('load').disabled=true;$('status').className='status';$('status').textContent='Caricamento dati...';
+  try{
+    const bars=await fetchBars(signal);if(signal.aborted)return;
+    lastBars=bars;
+    // Reset event validation only when user starts a fresh report; repeated refreshes replay the visible history.
+    const result=runEngine(bars);stallHits=result.hits;stallTotal=result.total;
+    render(result,bars);
+  }catch(e){if(!signal.aborted){$('status').className='status error';$('status').textContent='Errore: '+(e?.message||e)+' — puoi riprovare.'}}
+  finally{if(controller&&controller.signal===signal)$('load').disabled=false; schedule()}
+}
+function schedule(){
+  clearTimeout(timer);const sec=Number($('refresh').value);
+  if(sec>0&&!document.hidden)timer=setTimeout(load,sec*1000);
+}
+$('load').addEventListener('click',()=>{clearTimeout(timer);load()});
+$('stop').addEventListener('click',()=>{clearTimeout(timer);if(controller)controller.abort();$('status').textContent='Aggiornamento automatico fermato.'});
+$('refresh').addEventListener('change',schedule);
+document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(timer);if(controller)controller.abort()}else if(Number($('refresh').value)>0&&lastBars.length)load()});
+window.addEventListener('resize',()=>{if(lastBars.length){const result=runEngine(lastBars);render(result,lastBars)}});
+</script>
+</body>
+</html>
